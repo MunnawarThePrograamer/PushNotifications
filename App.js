@@ -1,12 +1,18 @@
+// Import necessary modules from React, React Native, and Expo
 import React, { useState, useEffect } from 'react';
 import { View, Text, Alert, TextInput, Button, StyleSheet } from 'react-native';
-import messaging from '@react-native-firebase/messaging';
+import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
+import messaging from '@react-native-firebase/messaging';
 
+// Main App component
 export default function App() {
-  const [pushToken, setPushToken] = useState(null);
+  // State variables
+  const [expoPushToken, setExpoPushToken] = useState('');
   const [notificationMessage, setNotificationMessage] = useState('');
-
+  const [pushToken, setPushToken] = useState(null);
+  console.log("This is Recipent Push Token",pushToken)
+  // Function to request user permission for push notifications
   async function requestUserPermission() {
     try {
       const authStatus = await messaging().requestPermission();
@@ -27,36 +33,84 @@ export default function App() {
     }
   }
 
-  const sendNotification = () => {
-    if (pushToken && notificationMessage.trim() !== '') {
+  // Function to register for push notifications
+  const registerForPushNotificationsAsync = async () => {
+    try {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+
+      if (finalStatus !== 'granted') {
+        console.log('Failed to get push token for push notification!');
+        return;
+      }
+
+      const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: "199731ef-0709-409e-b62f-2a497b61886d" });
+      const token = tokenData.data;
+      setExpoPushToken(token);
+      console.log('Expo Push Token:', token);
+    } catch (error) {
+      console.error('Error getting Expo push token:', error);
+    }
+  };
+
+  // Effect hook for handling push token listener and registration on component mount
+  useEffect(() => {
+    const subscription = Notifications.addPushTokenListener(({ data: token }) => {
+      console.log('Expo push token received:', token);
+      setExpoPushToken(token);
+    });
+
+    registerForPushNotificationsAsync();
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  // Function to send a custom push notification
+  const sendNotification = async () => {
+    if (expoPushToken && notificationMessage.trim() !== '') {
+      console.log("from Munnawar",expoPushToken)
       const notificationData = {
-        to: pushToken,
+        to: expoPushToken,
         title: 'Custom Notification',
         body: notificationMessage,
       };
 
-      fetch('https://exp.host/--/api/v2/push/send', {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Accept-encoding': 'gzip, deflate',
-          'Content-Type': 'application/json',
-          Host: 'exp.host',
-        },
-        body: JSON.stringify(notificationData),
-      })
-        .then((response) => response.json())
-        .then((responseJson) => {
-          console.log('Push notification sent successfully:', responseJson);
-        })
-        .catch((error) => {
-          console.error('Error sending push notification:', error);
+      try {
+        const response = await fetch('https://exp.host/--/api/v2/push/send', {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Accept-encoding': 'gzip, deflate',
+            'Content-Type': 'application/json',
+            Host: 'exp.host',
+          },
+          body: JSON.stringify(notificationData),
         });
+
+        const responseJson = await response.json();
+
+        if (responseJson && responseJson.data && responseJson.data.details && responseJson.data.details.error) {
+          // Handle specific error if available
+          console.error('Push notification error:', responseJson.data.details.error);
+        } else {
+          console.log('Push notification sent successfully:', responseJson);
+        }
+      } catch (error) {
+        console.error('Error sending push notification:', error.message);
+      }
     } else {
-      Alert.alert('Push Token not available or message is empty');
+      Alert.alert('Expo Push Token not available or message is empty');
     }
   };
 
+  // Effect hook for handling Firebase Cloud Messaging (FCM) messages and notifications
   useEffect(() => {
     const unsubscribe = messaging().onMessage(async (remoteMessage) => {
       Alert.alert('A new FCM message arrived!', JSON.stringify(remoteMessage));
@@ -91,6 +145,7 @@ export default function App() {
       console.log('Message handled in the background!', remoteMessage);
     });
 
+    // Request user permission for push notifications
     requestUserPermission();
 
     return () => {
@@ -98,9 +153,10 @@ export default function App() {
     };
   }, []);
 
+  // Render UI
   return (
     <View style={styles.container}>
-      <Text>Prograamer Tiffin Services</Text>
+      <Text>Programmer Tiffin Services</Text>
       <TextInput
         style={styles.input}
         placeholder="Enter notification message"
@@ -113,6 +169,7 @@ export default function App() {
   );
 }
 
+// Styles
 const styles = StyleSheet.create({
   container: {
     flex: 1,
